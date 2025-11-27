@@ -259,10 +259,8 @@ export function ChatArea({ conversationId }: ChatAreaProps) {
                       <span className="text-xs font-bold text-white">G</span>
                     </div>
                     <div className="flex-1 max-w-lg">
-                      <div className="rounded-2xl rounded-tl-none bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/10 px-5 py-4 backdrop-blur-sm shadow-lg hover:shadow-xl transition-shadow">
-                        <p className="text-white/90 text-sm leading-relaxed break-words">
-                          <MessageRenderer content={msg.content} role={msg.role} />
-                        </p>
+                      <div className="rounded-2xl rounded-tl-none bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/10 px-5 py-4 backdrop-blur-sm shadow-lg hover:shadow-xl transition-shadow text-white/90 text-sm leading-relaxed break-words">
+                        <MessageRenderer content={msg.content} role={msg.role} />
                       </div>
                     </div>
                   </div>
