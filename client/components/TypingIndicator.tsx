@@ -1,4 +1,4 @@
-export function ThinkingAnimation() {
+export function TypingIndicator() {
   return (
     <div
       className="rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2"
@@ -8,23 +8,20 @@ export function ThinkingAnimation() {
         boxShadow: "0 4px 16px rgba(0, 0, 0, 0.3)",
       }}
     >
-      <div className="flex gap-1.5 items-center">
+      <div className="flex gap-1.5 items-end">
         <div
-          className="w-2 h-2 rounded-full bg-orange-400 animate-threeDotPulse"
+          className="w-2 h-2 rounded-full bg-white/60 animate-threeDotPulse"
           style={{ animationDelay: "0s" }}
         />
         <div
-          className="w-2 h-2 rounded-full bg-orange-400 animate-threeDotPulse"
+          className="w-2 h-2 rounded-full bg-white/60 animate-threeDotPulse"
           style={{ animationDelay: "0.2s" }}
         />
         <div
-          className="w-2 h-2 rounded-full bg-orange-400 animate-threeDotPulse"
+          className="w-2 h-2 rounded-full bg-white/60 animate-threeDotPulse"
           style={{ animationDelay: "0.4s" }}
         />
       </div>
-      <span className="text-sm font-medium text-white/70 ml-1">
-        L'IA réfléchit...
-      </span>
     </div>
   );
 }

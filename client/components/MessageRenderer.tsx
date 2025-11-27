@@ -24,8 +24,14 @@ function CodeBlockWithCopy({
   };
 
   return (
-    <div className="my-4 rounded-lg overflow-hidden bg-gradient-to-br from-slate-900 to-slate-950 border border-white/10 shadow-lg hover:shadow-xl transition-shadow">
-      <div className="flex items-center justify-between bg-gradient-to-r from-orange-600/20 to-orange-500/10 px-4 py-3 border-b border-white/10">
+    <div
+      className="my-3 rounded-lg overflow-hidden border border-white/10 shadow-lg hover:shadow-xl transition-shadow"
+      style={{ backgroundColor: "#0f1117" }}
+    >
+      <div
+        className="flex items-center justify-between px-4 py-3 border-b border-white/10"
+        style={{ backgroundColor: "rgba(88, 166, 255, 0.1)" }}
+      >
         <span className="text-xs font-mono text-orange-300 font-semibold uppercase tracking-wide">
           {language || "code"}
         </span>
@@ -47,8 +53,8 @@ function CodeBlockWithCopy({
           )}
         </button>
       </div>
-      <pre className="p-5 overflow-x-auto">
-        <code className="font-mono text-sm leading-relaxed text-white/90 whitespace-pre">
+      <pre className="p-4 overflow-x-auto">
+        <code className="font-mono text-sm leading-[1.55] text-white/90 whitespace-pre">
           {escapeHtml(code)}
         </code>
       </pre>
@@ -104,7 +110,7 @@ function parseMarkdownElements(text: string): ReactNode[] {
       elements.push(
         <HeadingElement
           key={`h-${i}`}
-          className={`text-white ${headingClasses[HeadingTag]}`}
+          className={`text-white leading-[1.55] ${headingClasses[HeadingTag]}`}
         >
           {parseInlineMarkdown(content)}
         </HeadingElement>,
@@ -124,7 +130,8 @@ function parseMarkdownElements(text: string): ReactNode[] {
       elements.push(
         <blockquote
           key={`quote-${i}`}
-          className="border-l-4 border-orange-500 pl-4 py-2 my-3 text-white/70 italic bg-orange-500/10 rounded-r-lg"
+          className="border-l-4 border-orange-500 pl-4 py-2 my-3 text-white/70 italic rounded-r-lg leading-[1.55]"
+          style={{ backgroundColor: "rgba(88, 166, 255, 0.08)" }}
         >
           {parseInlineMarkdown(quoteText)}
         </blockquote>,
@@ -158,7 +165,7 @@ function parseMarkdownElements(text: string): ReactNode[] {
             className="list-decimal list-inside mb-3 space-y-2 text-white/90 pl-2"
           >
             {listItems.map((item, idx) => (
-              <li key={idx} className="text-white/90 leading-relaxed">
+              <li key={idx} className="text-white/90 leading-[1.55]">
                 {parseInlineMarkdown(item)}
               </li>
             ))}
@@ -171,7 +178,7 @@ function parseMarkdownElements(text: string): ReactNode[] {
             className="list-disc list-inside mb-3 space-y-2 text-white/90 pl-2"
           >
             {listItems.map((item, idx) => (
-              <li key={idx} className="text-white/90 leading-relaxed">
+              <li key={idx} className="text-white/90 leading-[1.55]">
                 {parseInlineMarkdown(item)}
               </li>
             ))}
@@ -184,7 +191,7 @@ function parseMarkdownElements(text: string): ReactNode[] {
     // Regular paragraphs
     if (trimmed) {
       elements.push(
-        <p key={`p-${i}`} className="mb-3 leading-relaxed text-white/90">
+        <p key={`p-${i}`} className="mb-3 leading-[1.55] text-white/90">
           {parseInlineMarkdown(trimmed)}
         </p>,
       );
@@ -355,7 +362,7 @@ export function MessageRenderer({
   const elements = parseMarkdownElements(content);
 
   return (
-    <div className="space-y-2">
+    <div>
       {elements}
       {isStreaming && (
         <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />

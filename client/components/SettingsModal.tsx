@@ -7,6 +7,7 @@ import {
 import { useState, useEffect } from "react";
 import { Moon, LogOut, Loader2, Sun } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { ProfilePhotoUpload } from "@/components/ProfilePhotoUpload";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -22,9 +23,9 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onOpenChange }: SettingsModalProps) {
   const { user, userData } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [displayName, setDisplayName] = useState("");
-  const [darkMode, setDarkMode] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -43,27 +44,10 @@ export function SettingsModal({ isOpen, onOpenChange }: SettingsModalProps) {
 
   const handleDarkModeToggle = async () => {
     try {
-      const newDarkMode = !darkMode;
-      setDarkMode(newDarkMode);
-
-      if (user?.uid) {
-        const userRef = doc(db, "users", user.uid);
-        await updateDoc(userRef, {
-          darkMode: newDarkMode,
-        });
-
-        if (newDarkMode) {
-          document.documentElement.classList.add("dark");
-        } else {
-          document.documentElement.classList.remove("dark");
-        }
-      }
-
-      localStorage.setItem("darkMode", JSON.stringify(newDarkMode));
-      toast.success(newDarkMode ? "Mode sombre activé" : "Mode clair activé");
+      toggleTheme();
+      toast.success(!isDark ? "Mode sombre activé" : "Mode clair activé");
     } catch (error) {
       console.error("Error toggling dark mode:", error);
-      setDarkMode(!darkMode);
       toast.error("Erreur lors du changement de mode");
     }
   };
@@ -182,15 +166,15 @@ export function SettingsModal({ isOpen, onOpenChange }: SettingsModalProps) {
                 <button
                   onClick={handleDarkModeToggle}
                   className={`relative w-12 h-7 rounded-full transition-all duration-300 flex items-center ${
-                    darkMode ? "bg-primary/40" : "bg-white/[0.1]"
+                    isDark ? "bg-primary/40" : "bg-white/[0.1]"
                   }`}
                 >
                   <div
                     className={`absolute w-6 h-6 rounded-full bg-white shadow-md transition-all duration-300 flex items-center justify-center ${
-                      darkMode ? "translate-x-5" : "translate-x-0.5"
+                      isDark ? "translate-x-5" : "translate-x-0.5"
                     }`}
                   >
-                    {darkMode ? (
+                    {isDark ? (
                       <Moon size={14} className="text-primary" />
                     ) : (
                       <Sun size={14} className="text-yellow-500" />

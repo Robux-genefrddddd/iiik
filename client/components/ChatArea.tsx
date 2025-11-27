@@ -14,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { MessageRenderer } from "@/components/MessageRenderer";
 import { ThinkingAnimation } from "@/components/ThinkingAnimation";
+import { TypingIndicator } from "@/components/TypingIndicator";
 import {
   Popover,
   PopoverContent,
@@ -31,12 +32,17 @@ const EMOJIS = [
   "😡",
   "🎉",
   "🔥",
-  "����",
+  "💯",
   "❤️",
   "✨",
   "🚀",
-  "���",
+  "🤯",
 ];
+
+const AUTO_RESIZE_CONFIG = {
+  minHeight: 48,
+  maxHeight: 200,
+};
 
 interface ChatMessage {
   id: string;
@@ -58,10 +64,74 @@ export function ChatArea({ conversationId }: ChatAreaProps) {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [typingText, setTypingText] = useState("");
+  const [fullText, setFullText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const typingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Rate limiter: max 30 messages per minute
   const messageRateLimiter = useRef(new RateLimiter("send_message", 30, 60000));
+
+  const handleTextareaAutoResize = () => {
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = `${AUTO_RESIZE_CONFIG.minHeight}px`;
+    const scrollHeight = textareaRef.current.scrollHeight;
+    const newHeight = Math.min(scrollHeight, AUTO_RESIZE_CONFIG.maxHeight);
+    textareaRef.current.style.height = `${newHeight}px`;
+  };
+
+  const getCharacterDelay = (char: string, nextChar?: string): number => {
+    const baseDelay = 20;
+    if (char === "." || char === "?" || char === "!") {
+      return 200;
+    }
+    if (char === ",") {
+      return 80;
+    }
+    if (char === "\n") {
+      return 100;
+    }
+    return baseDelay;
+  };
+
+  const startTypewriterEffect = (text: string) => {
+    if (typingIntervalRef.current) {
+      clearInterval(typingIntervalRef.current);
+    }
+
+    setIsTyping(true);
+    setTypingText("");
+    setFullText(text);
+    let currentIndex = 0;
+
+    const typeNextCharacter = () => {
+      if (currentIndex < text.length) {
+        const newText = text.substring(0, currentIndex + 1);
+        setTypingText(newText);
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+
+        const currentChar = text[currentIndex];
+        const delay = getCharacterDelay(currentChar);
+
+        typingIntervalRef.current = setTimeout(
+          typeNextCharacter,
+          delay,
+        ) as unknown as NodeJS.Timeout;
+
+        currentIndex++;
+      } else {
+        setIsTyping(false);
+        typingIntervalRef.current = null;
+      }
+    };
+
+    typingIntervalRef.current = setTimeout(
+      typeNextCharacter,
+      20,
+    ) as unknown as NodeJS.Timeout;
+  };
 
   useEffect(() => {
     if (conversationId && user?.uid) {
@@ -69,9 +139,75 @@ export function ChatArea({ conversationId }: ChatAreaProps) {
     }
   }, [conversationId, user?.uid]);
 
+  // Cleanup typing interval on unmount and conversation change
+  useEffect(() => {
+    return () => {
+      if (typingIntervalRef.current) {
+        clearTimeout(typingIntervalRef.current);
+        typingIntervalRef.current = null;
+      }
+    };
+  }, []);
+
+  // Reset typing state when conversation changes
+  useEffect(() => {
+    if (typingIntervalRef.current) {
+      clearTimeout(typingIntervalRef.current);
+      typingIntervalRef.current = null;
+    }
+    setIsTyping(false);
+    setTypingText("");
+    setFullText("");
+  }, [conversationId]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, loading, isThinking]);
+  }, [chatMessages, loading, isThinking, typingText]);
+
+  // Handle saving message to Firebase when typing is complete
+  useEffect(() => {
+    if (
+      !isTyping &&
+      fullText &&
+      conversationId &&
+      user &&
+      chatMessages.length > 0
+    ) {
+      const lastMessage = chatMessages[chatMessages.length - 1];
+      if (lastMessage.role === "assistant" && lastMessage.content === "") {
+        const saveMessage = async () => {
+          try {
+            // Update the last message with the full typed text
+            setChatMessages((prev) => {
+              const updated = [...prev];
+              if (
+                updated.length > 0 &&
+                updated[updated.length - 1].role === "assistant"
+              ) {
+                updated[updated.length - 1].content = fullText;
+              }
+              return updated;
+            });
+
+            // Save to Firebase
+            await MessagesService.addMessage(
+              conversationId,
+              user.uid,
+              `assistant:${fullText}`,
+            );
+
+            // Reset typing state
+            setTypingText("");
+            setFullText("");
+          } catch (error) {
+            console.error("Error saving message:", error);
+          }
+        };
+
+        saveMessage();
+      }
+    }
+  }, [isTyping, fullText, conversationId, user, chatMessages]);
 
   const loadMessages = async () => {
     if (!conversationId) return;
@@ -172,6 +308,23 @@ export function ChatArea({ conversationId }: ChatAreaProps) {
       if (isImage) {
         // Generate image
         assistantContent = await generateImage(userMessageText);
+        // Add assistant response immediately for images
+        const assistantMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: assistantContent,
+          timestamp: Date.now(),
+        };
+        setChatMessages((prev) => [...prev, assistantMsg]);
+
+        // Save assistant message to Firebase
+        await MessagesService.addMessage(
+          conversationId,
+          user.uid,
+          `assistant:${assistantContent}`,
+        );
+
+        toast.success("Image générée avec succès!");
       } else {
         // Get AI response for normal chat
         const conversationHistory = chatMessages.map((msg) => ({
@@ -184,33 +337,25 @@ export function ChatArea({ conversationId }: ChatAreaProps) {
           userMessageText,
           conversationHistory,
         );
+
+        // Add placeholder message with empty content
+        const assistantMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "", // Will be filled by typewriter effect
+          timestamp: Date.now(),
+        };
+        setChatMessages((prev) => [...prev, assistantMsg]);
+
+        // Start typewriter effect
+        startTypewriterEffect(assistantContent);
       }
-
-      // Add assistant response to chat
-      const assistantMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: assistantContent,
-        timestamp: Date.now(),
-      };
-      setChatMessages((prev) => [...prev, assistantMsg]);
-
-      // Save assistant message to Firebase
-      await MessagesService.addMessage(
-        conversationId,
-        user.uid,
-        `assistant:${assistantContent}`,
-      );
 
       // Update message count in Firebase
       await MessagesService.updateUserMessageCount(
         user.uid,
         userData.messagesUsed + 1,
       );
-
-      if (isImage) {
-        toast.success("Image générée avec succès!");
-      }
     } catch (error) {
       console.error("Error sending message:", error);
       toast.error(
@@ -263,224 +408,277 @@ export function ChatArea({ conversationId }: ChatAreaProps) {
   return (
     <div
       id="chat-area"
-      className="flex-1 flex flex-col bg-gradient-to-b from-background via-background to-background/95 min-h-0"
+      className="flex-1 flex flex-col min-h-0"
+      style={{ backgroundColor: "#0e0e0e" }}
     >
-      {/* Main Content Area - Messages Container with Fixed Height & Scrollbar */}
-      <div className="flex-1 overflow-y-auto flex flex-col px-4 sm:px-6 md:px-8 py-4 sm:py-6 animate-fadeIn space-y-4 sm:space-y-6 min-h-0">
-        {!conversationId ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div
-                className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center border-2 border-foreground/20 animate-scaleIn"
-                style={{
-                  backgroundImage:
-                    "url(https://cdn.builder.io/api/v1/image/assets%2Fafa67d28f8874020a08a6dc1ed05801d%2F340d671f0c4b45db8b30096668d2bc7c)",
-                  backgroundRepeat: "no-repeat",
-                  backgroundPosition: "center",
-                  backgroundSize: "cover",
-                }}
-              />
-              <h2 className="text-lg font-semibold text-foreground mb-2 animate-slideUp">
-                Sélectionnez une conversation
-              </h2>
-              <p
-                className="text-sm text-foreground/60 animate-slideUp"
-                style={{ animationDelay: "0.1s" }}
-              >
-                Cliquez sur une conversation à gauche pour commencer
-              </p>
+      {/* Main Content Area - Messages Container */}
+      <div className="flex-1 overflow-y-auto flex flex-col px-6 md:px-8 py-6 animate-fadeIn min-h-0 items-center">
+        <div className="w-full max-w-2xl">
+          {!conversationId ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-center">
+                <div
+                  className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center border-2 border-foreground/20 animate-scaleIn"
+                  style={{
+                    backgroundImage:
+                      "url(https://cdn.builder.io/api/v1/image/assets%2Fafa67d28f8874020a08a6dc1ed05801d%2F340d671f0c4b45db8b30096668d2bc7c)",
+                    backgroundRepeat: "no-repeat",
+                    backgroundPosition: "center",
+                    backgroundSize: "cover",
+                  }}
+                />
+                <h2 className="text-lg font-semibold text-foreground mb-2 animate-slideUp">
+                  Sélectionnez une conversation
+                </h2>
+                <p
+                  className="text-sm text-foreground/60 animate-slideUp"
+                  style={{ animationDelay: "0.1s" }}
+                >
+                  Cliquez sur une conversation à gauche pour commencer
+                </p>
+              </div>
             </div>
-          </div>
-        ) : loadingMessages ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="w-8 h-8 animate-spin text-foreground/50" />
-          </div>
-        ) : chatMessages.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div
-                className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center border-2 border-foreground/20 animate-scaleIn"
-                style={{
-                  backgroundImage:
-                    "url(https://cdn.builder.io/api/v1/image/assets%2Fafa67d28f8874020a08a6dc1ed05801d%2F340d671f0c4b45db8b30096668d2bc7c)",
-                  backgroundRepeat: "no-repeat",
-                  backgroundPosition: "center",
-                  backgroundSize: "cover",
-                }}
-              />
-              <h2 className="text-lg font-semibold text-foreground mb-2 animate-slideUp">
-                Commencez une conversation
-              </h2>
-              <p
-                className="text-sm text-foreground/60 animate-slideUp"
-                style={{ animationDelay: "0.1s" }}
-              >
-                Tapez un message ci-dessous pour commencer
-              </p>
+          ) : loadingMessages ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="w-8 h-8 animate-spin text-foreground/50" />
             </div>
-          </div>
-        ) : (
-          <div className="space-y-6 pb-4">
-            {chatMessages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${
-                  msg.role === "user" ? "justify-end" : "justify-start"
-                } animate-slideUp`}
-              >
-                {msg.role === "user" ? (
-                  <div className="flex gap-2 sm:gap-3 max-w-xs sm:max-w-sm md:max-w-lg lg:max-w-2xl items-start flex-row-reverse">
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 mt-1 shadow-md border border-blue-400/50 ring-2 ring-blue-400/20 overflow-hidden">
-                      {userData?.profilePhotoURL ? (
-                        <img
-                          src={userData.profilePhotoURL}
-                          alt={user?.displayName || "User"}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : user?.photoURL ? (
-                        <img
-                          src={user.photoURL}
-                          alt={user.displayName || "User"}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <span className="text-xs font-bold text-white">
-                          {user?.displayName?.[0]?.toUpperCase() || "U"}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex-1 max-w-xs sm:max-w-sm md:max-w-lg max-h-96 overflow-y-auto">
-                      <div className="rounded-2xl rounded-tr-none bg-gradient-to-br from-blue-600/40 to-blue-700/30 border border-blue-500/30 px-5 py-3 backdrop-blur-sm shadow-lg hover:shadow-xl transition-shadow text-white/95 text-sm leading-relaxed break-words">
-                        <MessageRenderer
-                          content={msg.content}
-                          role={msg.role}
-                        />
+          ) : chatMessages.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-center">
+                <div
+                  className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center border-2 border-foreground/20 animate-scaleIn"
+                  style={{
+                    backgroundImage:
+                      "url(https://cdn.builder.io/api/v1/image/assets%2Fafa67d28f8874020a08a6dc1ed05801d%2F340d671f0c4b45db8b30096668d2bc7c)",
+                    backgroundRepeat: "no-repeat",
+                    backgroundPosition: "center",
+                    backgroundSize: "cover",
+                  }}
+                />
+                <h2 className="text-lg font-semibold text-foreground mb-2 animate-slideUp">
+                  Commencez une conversation
+                </h2>
+                <p
+                  className="text-sm text-foreground/60 animate-slideUp"
+                  style={{ animationDelay: "0.1s" }}
+                >
+                  Tapez un message ci-dessous pour commencer
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 pb-4">
+              {chatMessages.map((msg, index) => {
+                const isLastMessage = index === chatMessages.length - 1;
+                const displayContent =
+                  isLastMessage && isTyping ? typingText : msg.content;
+
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex w-full ${
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    } animate-springFade`}
+                  >
+                    {msg.role === "user" ? (
+                      <div className="flex gap-2 items-start flex-row-reverse max-w-lg">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-md border border-blue-400/50 overflow-hidden">
+                          {userData?.profilePhotoURL ? (
+                            <img
+                              src={userData.profilePhotoURL}
+                              alt={user?.displayName || "User"}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : user?.photoURL ? (
+                            <img
+                              src={user.photoURL}
+                              alt={user.displayName || "User"}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-xs font-bold text-white">
+                              {user?.displayName?.[0]?.toUpperCase() || "U"}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1 max-w-md max-h-96 overflow-y-auto">
+                          <div
+                            className="rounded-2xl rounded-tr-none px-4 py-3 text-white/95 text-sm leading-[1.55] break-words"
+                            style={{
+                              background:
+                                "linear-gradient(135deg, #1E3A8A 0%, #1E40AF 100%)",
+                              boxShadow: "0 4px 16px rgba(0, 0, 0, 0.3)",
+                            }}
+                          >
+                            <MessageRenderer
+                              content={msg.content}
+                              role={msg.role}
+                            />
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="flex gap-2 items-start max-w-lg">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0 shadow-md border border-orange-400/50">
+                          <span className="text-xs font-bold text-white">
+                            V
+                          </span>
+                        </div>
+                        <div className="flex-1 max-w-md max-h-96 overflow-y-auto">
+                          <div
+                            className="rounded-2xl rounded-tl-none px-4 py-3 text-white/90 text-sm leading-[1.55] break-words"
+                            style={{
+                              backgroundColor: "#111418",
+                              border: "1px solid rgba(255, 255, 255, 0.08)",
+                              boxShadow: "0 4px 16px rgba(0, 0, 0, 0.3)",
+                            }}
+                          >
+                            <MessageRenderer
+                              content={displayContent}
+                              role={msg.role}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="flex gap-2 sm:gap-3 max-w-xs sm:max-w-sm md:max-w-lg lg:max-w-2xl items-start">
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0 mt-1 shadow-md border border-orange-400/50 ring-2 ring-orange-400/20">
+                );
+              })}
+              {(loading || isThinking || isTyping) && (
+                <div className="flex w-full justify-start animate-springFade">
+                  <div className="flex gap-2 items-start max-w-lg">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0 shadow-md border border-orange-400/50">
                       <span className="text-xs font-bold text-white">V</span>
                     </div>
-                    <div className="flex-1 max-w-xs sm:max-w-sm md:max-w-lg max-h-96 overflow-y-auto">
-                      <div className="rounded-2xl rounded-tl-none bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/10 px-5 py-4 backdrop-blur-sm shadow-lg hover:shadow-xl transition-shadow text-white/90 text-sm leading-relaxed break-words">
-                        <MessageRenderer
-                          content={msg.content}
-                          role={msg.role}
-                        />
-                      </div>
-                    </div>
+                    {isTyping ? <TypingIndicator /> : <ThinkingAnimation />}
                   </div>
-                )}
-              </div>
-            ))}
-            {(loading || isThinking) && (
-              <div className="flex justify-start animate-slideUp">
-                <div className="flex gap-3 items-start">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0 mt-1 shadow-md border border-orange-400/50 ring-2 ring-orange-400/20">
-                    <span className="text-xs font-bold text-white">V</span>
-                  </div>
-                  <ThinkingAnimation />
                 </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        )}
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Message Input Area - Fixed at Bottom */}
       <div
-        className="px-4 sm:px-6 md:px-8 py-3 animate-slideUp border-t border-white/10 bg-gradient-to-t from-background to-transparent"
-        style={{ animationDelay: "0.2s" }}
+        className="w-full px-6 md:px-8 py-6 animate-slideUp border-t"
+        style={{
+          borderColor: "rgba(255, 255, 255, 0.08)",
+          backgroundColor: "#0e0e0e",
+        }}
       >
-        <div
-          className={`flex items-center gap-2 border border-white/30 rounded-lg px-3 py-2.5 bg-white/5 backdrop-blur-sm transition-all duration-300 group shadow-sm ${!conversationId ? "opacity-50 cursor-not-allowed" : "hover:border-white/50 hover:bg-white/8 focus-within:border-white/60 focus-within:shadow-md focus-within:shadow-white/10"}`}
-        >
-          <input
-            id="message-input"
-            type="text"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            disabled={!conversationId || loading}
-            placeholder={
-              conversationId
-                ? "Votre message..."
-                : "Sélectionnez une conversation..."
-            }
-            className="flex-1 bg-transparent text-white placeholder-white/50 focus:outline-none text-sm leading-normal disabled:opacity-50 transition-colors"
-          />
+        <div className="flex flex-col items-center w-full">
+          <div className="w-full max-w-2xl">
+            <div
+              className={`flex items-end gap-2 px-4 py-3 transition-all duration-300 group shadow-sm ${
+                !conversationId
+                  ? "opacity-50 cursor-not-allowed"
+                  : "hover:shadow-md focus-within:shadow-md"
+              }`}
+              style={{
+                backgroundColor: "#111",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                borderRadius: "16px",
+              }}
+            >
+              <textarea
+                ref={textareaRef}
+                id="message-input"
+                value={message}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  handleTextareaAutoResize();
+                }}
+                onKeyPress={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                disabled={!conversationId || loading}
+                placeholder={
+                  conversationId
+                    ? "Votre message..."
+                    : "Sélectionnez une conversation..."
+                }
+                className="flex-1 bg-transparent text-white placeholder-white/50 focus:outline-none text-sm leading-[1.55] disabled:opacity-50 transition-colors resize-none max-h-48"
+                style={{
+                  height: `${AUTO_RESIZE_CONFIG.minHeight}px`,
+                  overflow: "hidden",
+                }}
+              />
 
-          {/* Emoji Picker */}
-          <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
-            <PopoverTrigger asChild>
-              <button
-                id="emoji-btn"
-                className="p-1.5 text-white/40 hover:text-white/70 transition-all duration-200 hover:bg-white/10 rounded-md"
-                aria-label="Ajouter un emoji"
-              >
-                <Smile size={16} />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-64 p-3 bg-card border border-white/20 rounded-2xl shadow-xl">
-              <div className="grid grid-cols-5 gap-2">
-                {EMOJIS.map((emoji) => (
+              {/* Emoji Picker */}
+              <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+                <PopoverTrigger asChild>
                   <button
-                    key={emoji}
-                    onClick={() => addEmoji(emoji)}
-                    className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-xl hover:scale-125 transform"
+                    id="emoji-btn"
+                    className="p-2 text-white/40 hover:text-white/70 transition-all duration-200 rounded-lg flex-shrink-0"
+                    aria-label="Ajouter un emoji"
                   >
-                    {emoji}
+                    <Smile size={18} />
                   </button>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-3 bg-card border border-white/20 rounded-2xl shadow-xl">
+                  <div className="grid grid-cols-5 gap-2">
+                    {EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        onClick={() => addEmoji(emoji)}
+                        className="p-2 hover:bg-white/10 rounded-lg transition-all duration-200 text-xl hover:scale-125 transform"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
 
-          {/* Send Button */}
-          <button
-            onClick={handleSend}
-            disabled={loading || !message.trim()}
-            className="p-1.5 text-white/40 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-200 hover:bg-white/10 rounded-md flex items-center justify-center"
-            aria-label="Envoyer le message"
-          >
-            {loading ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              <Send size={16} />
-            )}
-          </button>
-        </div>
-
-        {/* Image Generation Loading State */}
-        {generatingImage && (
-          <div className="flex items-center gap-3 px-4 py-3 mt-2 rounded-lg bg-gradient-to-r from-purple-600/20 to-purple-500/10 border border-purple-500/40 animate-pulse">
-            <div className="flex gap-1">
-              <div
-                className="w-2 h-2 rounded-full bg-purple-400 animate-bounce"
-                style={{ animationDelay: "0s" }}
-              />
-              <div
-                className="w-2 h-2 rounded-full bg-purple-400 animate-bounce"
-                style={{ animationDelay: "0.2s" }}
-              />
-              <div
-                className="w-2 h-2 rounded-full bg-purple-400 animate-bounce"
-                style={{ animationDelay: "0.4s" }}
-              />
+              {/* Send Button */}
+              <button
+                onClick={handleSend}
+                disabled={loading || !message.trim()}
+                className="p-2 text-white/40 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-200 rounded-lg flex items-center justify-center flex-shrink-0 hover:scale-110 active:scale-95"
+                style={{
+                  color: !message.trim()
+                    ? "rgba(255, 255, 255, 0.3)"
+                    : "#3b82f6",
+                }}
+                aria-label="Envoyer le message"
+              >
+                {loading ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Send size={18} />
+                )}
+              </button>
             </div>
-            <span className="text-sm text-purple-300 font-medium">
-              Génération d'image en cours...
-            </span>
+
+            {/* Image Generation Loading State */}
+            {generatingImage && (
+              <div className="flex items-center gap-3 px-4 py-3 mt-3 rounded-lg bg-gradient-to-r from-purple-600/20 to-purple-500/10 border border-purple-500/40 animate-pulse">
+                <div className="flex gap-1">
+                  <div
+                    className="w-2 h-2 rounded-full bg-purple-400 animate-bounce"
+                    style={{ animationDelay: "0s" }}
+                  />
+                  <div
+                    className="w-2 h-2 rounded-full bg-purple-400 animate-bounce"
+                    style={{ animationDelay: "0.2s" }}
+                  />
+                  <div
+                    className="w-2 h-2 rounded-full bg-purple-400 animate-bounce"
+                    style={{ animationDelay: "0.4s" }}
+                  />
+                </div>
+                <span className="text-sm text-purple-300 font-medium">
+                  Génération d'image en cours...
+                </span>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
