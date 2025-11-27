@@ -44,7 +44,7 @@ export function MessageRenderer({
         const textBefore = content.substring(lastIndex, match.index).trim();
         if (textBefore) {
           parts.push(
-            <p key={`text-${lastIndex}`} className="mb-2 leading-relaxed">
+            <p key={`text-${lastIndex}`} className="mb-4 leading-relaxed text-white/90">
               {textBefore}
             </p>
           );
@@ -57,14 +57,14 @@ export function MessageRenderer({
       parts.push(
         <div
           key={`code-${match.index}`}
-          className="my-3 rounded-lg overflow-hidden bg-white/5 border border-white/10"
+          className="my-4 rounded-xl overflow-hidden bg-gradient-to-br from-slate-900 to-slate-950 border border-white/10 shadow-lg"
         >
           {lang && (
-            <div className="bg-white/5 px-4 py-2 text-xs font-mono text-white/60 border-b border-white/10">
+            <div className="bg-gradient-to-r from-orange-600/20 to-orange-500/10 px-4 py-2 text-xs font-mono text-orange-300 border-b border-white/10 font-semibold">
               {lang}
             </div>
           )}
-          <pre className="p-4 overflow-x-auto">
+          <pre className="p-5 overflow-x-auto">
             <code className="font-mono text-sm leading-relaxed text-white/90">
               {code}
             </code>
@@ -80,7 +80,7 @@ export function MessageRenderer({
       const remaining = content.substring(lastIndex).trim();
       if (remaining) {
         parts.push(
-          <p key={`text-end`} className="mb-2 leading-relaxed">
+          <p key={`text-end`} className="mt-4 leading-relaxed text-white/90">
             {remaining}
           </p>
         );
@@ -88,7 +88,7 @@ export function MessageRenderer({
     }
 
     return (
-      <div className="text-white/90 space-y-2">
+      <div className="space-y-3">
         {parts}
         {isStreaming && (
           <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
@@ -97,10 +97,21 @@ export function MessageRenderer({
     );
   }
 
-  // Plain text rendering
+  // Plain text rendering with better spacing for long text
+  const lines = content.split("\n");
+  const hasLongText = content.length > 150;
+
   return (
-    <div className="text-white/90 leading-relaxed whitespace-pre-wrap break-words">
-      {content}
+    <div className={`text-white/90 ${hasLongText ? "space-y-2" : ""} leading-relaxed whitespace-pre-wrap break-words`}>
+      {hasLongText ? (
+        lines.map((line, idx) => (
+          <div key={idx} className={line.trim() === "" ? "h-2" : ""}>
+            {line || " "}
+          </div>
+        ))
+      ) : (
+        content
+      )}
       {isStreaming && (
         <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
       )}
