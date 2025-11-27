@@ -55,14 +55,16 @@ const BanIPSchema = z.object({
 // Endpoint: Verify admin status
 export const handleVerifyAdmin: RequestHandler = async (req, res) => {
   try {
-    const { idToken } = VerifyAdminSchema.parse(req.body);
-    const adminUid = await verifyAdmin(idToken);
+    const validated = VerifyAdminSchema.parse(req.body);
+    const adminUid = await FirebaseAdminService.verifyAdmin(validated.idToken);
     res.json({ success: true, adminUid });
   } catch (error) {
     console.error("Admin verification error:", error);
-    res.status(401).json({
+    const status = error instanceof z.ZodError ? 400 : 401;
+    res.status(status).json({
       error: "Unauthorized",
-      details: error instanceof Error ? error.message : "Unknown error",
+      message:
+        error instanceof Error ? error.message : "Verification failed",
     });
   }
 };
@@ -70,41 +72,29 @@ export const handleVerifyAdmin: RequestHandler = async (req, res) => {
 // Endpoint: Ban user (admin only)
 export const handleBanUser: RequestHandler = async (req, res) => {
   try {
-    const { idToken, userId, reason, duration } = BanUserSchema.parse(
-      req.body,
+    const validated = BanUserSchema.parse(req.body);
+    const adminUid = await FirebaseAdminService.verifyAdmin(
+      validated.idToken,
     );
-    const adminUid = await verifyAdmin(idToken);
 
-    // Validate target user exists and is not an admin
-    const targetUserDoc = await adminDb.collection("users").doc(userId).get();
-    if (!targetUserDoc.exists) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    if (targetUserDoc.data()?.isAdmin) {
-      return res.status(403).json({ error: "Cannot ban admin users" });
-    }
+    const banId = await FirebaseAdminService.banUser(
+      adminUid,
+      validated.userId,
+      validated.reason,
+      validated.duration,
+    );
 
-    // Create ban record
-    const banData = {
-      userId,
-      reason,
-      bannedBy: adminUid,
-      bannedAt: new Date(),
-      duration,
-      expiresAt: new Date(Date.now() + duration * 1000),
-    };
-
-    await adminDb.collection("bans").add(banData);
-
-    // Log admin action
-    console.log(`[ADMIN] ${adminUid} banned user ${userId}. Reason: ${reason}`);
-
-    res.json({ success: true, message: "User banned successfully" });
+    res.json({ success: true, banId });
   } catch (error) {
     console.error("Ban user error:", error);
-    res.status(400).json({
+    const status =
+      error instanceof z.ZodError ||
+      (error instanceof Error && error.message === "User not found")
+        ? 400
+        : 401;
+    res.status(status).json({
       error: "Failed to ban user",
-      details: error instanceof Error ? error.message : "Unknown error",
+      message: error instanceof Error ? error.message : "Operation failed",
     });
   }
 };
@@ -112,27 +102,25 @@ export const handleBanUser: RequestHandler = async (req, res) => {
 // Endpoint: Get all users (admin only)
 export const handleGetAllUsers: RequestHandler = async (req, res) => {
   try {
-    const idToken = req.headers.authorization?.split("Bearer ")[1];
-    if (!idToken) throw new Error("No ID token provided");
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      throw new Error("Missing or invalid authorization header");
+    }
 
-    await verifyAdmin(idToken);
+    const idToken = authHeader.slice(7).trim();
+    if (!idToken || idToken.length < 10 || idToken.length > 3000) {
+      throw new Error("Invalid token format");
+    }
 
-    const snapshot = await adminDb.collection("users").get();
-    const users = snapshot.docs.map((doc) => ({
-      uid: doc.id,
-      email: doc.data().email,
-      displayName: doc.data().displayName,
-      isAdmin: doc.data().isAdmin,
-      plan: doc.data().plan,
-      createdAt: doc.data().createdAt,
-    }));
+    await FirebaseAdminService.verifyAdmin(idToken);
+    const users = await FirebaseAdminService.getAllUsers();
 
     res.json({ success: true, users });
   } catch (error) {
     console.error("Get users error:", error);
     res.status(401).json({
       error: "Unauthorized",
-      details: error instanceof Error ? error.message : "Unknown error",
+      message: error instanceof Error ? error.message : "Operation failed",
     });
   }
 };
@@ -140,42 +128,81 @@ export const handleGetAllUsers: RequestHandler = async (req, res) => {
 // Endpoint: Create license (admin only)
 export const handleCreateLicense: RequestHandler = async (req, res) => {
   try {
-    const idToken = req.headers.authorization?.split("Bearer ")[1];
-    if (!idToken) throw new Error("No ID token provided");
+    const validated = CreateLicenseSchema.parse(req.body);
+    const adminUid = await FirebaseAdminService.verifyAdmin(
+      validated.idToken,
+    );
 
-    const adminUid = await verifyAdmin(idToken);
-
-    const { plan, validityDays } = z
-      .object({
-        plan: z.enum(["Free", "Classic", "Pro"]),
-        validityDays: z.number().int().positive(),
-      })
-      .parse(req.body);
-
-    // Generate unique license key
-    const licenseKey = `LIC-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-
-    const licenseData = {
-      key: licenseKey,
-      plan,
-      validityDays,
-      createdBy: adminUid,
-      createdAt: new Date(),
-      used: false,
-      usedBy: null,
-      usedAt: null,
-    };
-
-    await adminDb.collection("licenses").doc(licenseKey).set(licenseData);
-
-    console.log(`[ADMIN] ${adminUid} created license ${licenseKey}`);
+    const licenseKey = await FirebaseAdminService.createLicense(
+      adminUid,
+      validated.plan,
+      validated.validityDays,
+    );
 
     res.json({ success: true, licenseKey });
   } catch (error) {
     console.error("Create license error:", error);
-    res.status(400).json({
+    const status = error instanceof z.ZodError ? 400 : 401;
+    res.status(status).json({
       error: "Failed to create license",
-      details: error instanceof Error ? error.message : "Unknown error",
+      message: error instanceof Error ? error.message : "Operation failed",
+    });
+  }
+};
+
+// Endpoint: Ban IP (admin only)
+export const handleBanIP: RequestHandler = async (req, res) => {
+  try {
+    const validated = BanIPSchema.parse(req.body);
+    const adminUid = await FirebaseAdminService.verifyAdmin(
+      validated.idToken,
+    );
+
+    const banId = await FirebaseAdminService.banIP(
+      adminUid,
+      validated.ipAddress,
+      validated.reason,
+      validated.duration,
+    );
+
+    res.json({ success: true, banId });
+  } catch (error) {
+    console.error("Ban IP error:", error);
+    const status = error instanceof z.ZodError ? 400 : 401;
+    res.status(status).json({
+      error: "Failed to ban IP",
+      message: error instanceof Error ? error.message : "Operation failed",
+    });
+  }
+};
+
+// Endpoint: Delete user (admin only)
+export const handleDeleteUser: RequestHandler = async (req, res) => {
+  try {
+    const validated = z
+      .object({
+        idToken: z
+          .string()
+          .min(10)
+          .max(3000)
+          .regex(/^[A-Za-z0-9_\-\.]+$/),
+        userId: z.string().min(10).max(100),
+      })
+      .parse(req.body);
+
+    const adminUid = await FirebaseAdminService.verifyAdmin(
+      validated.idToken,
+    );
+
+    await FirebaseAdminService.deleteUser(adminUid, validated.userId);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Delete user error:", error);
+    const status = error instanceof z.ZodError ? 400 : 401;
+    res.status(status).json({
+      error: "Failed to delete user",
+      message: error instanceof Error ? error.message : "Operation failed",
     });
   }
 };
