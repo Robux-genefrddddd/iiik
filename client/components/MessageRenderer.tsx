@@ -1,7 +1,5 @@
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Copy, Check } from "lucide-react";
-import { useState } from "react";
+import { useState, ReactNode } from "react";
 
 interface MessageRendererProps {
   content: string;
@@ -57,6 +55,58 @@ function CodeBlockWithCopy({
   );
 }
 
+function parseMarkdown(text: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+
+  // Code blocks: ```language\ncode```
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
+  let match;
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    // Add text before code block
+    if (match.index > lastIndex) {
+      const textBefore = text.substring(lastIndex, match.index).trim();
+      if (textBefore) {
+        parts.push(
+          <div key={`text-${lastIndex}`} className="mb-3 leading-relaxed text-white/90 whitespace-pre-wrap">
+            {textBefore}
+          </div>
+        );
+      }
+    }
+
+    const language = match[1] || "";
+    const code = match[2].trim();
+
+    parts.push(
+      <CodeBlockWithCopy key={`code-${match.index}`} language={language} code={code} />
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    const remaining = text.substring(lastIndex).trim();
+    if (remaining) {
+      parts.push(
+        <div key="text-end" className="mt-2 leading-relaxed text-white/90 whitespace-pre-wrap">
+          {remaining}
+        </div>
+      );
+    }
+  }
+
+  return parts.length > 0
+    ? parts
+    : [
+        <div key="default" className="leading-relaxed text-white/90 whitespace-pre-wrap">
+          {text}
+        </div>,
+      ];
+}
+
 export function MessageRenderer({
   content,
   role,
@@ -80,144 +130,12 @@ export function MessageRenderer({
     );
   }
 
+  // Parse and render markdown-like content
+  const parsedContent = parseMarkdown(content);
+
   return (
-    <div className="prose prose-invert max-w-none text-white/90">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          code({ inline, className, children, ...props }: any) {
-            if (inline) {
-              return (
-                <code className="bg-white/15 px-2 py-1 rounded font-mono text-sm text-orange-300 border border-white/10 font-semibold">
-                  {children}
-                </code>
-              );
-            }
-
-            const match = /language-(\w+)/.exec(className || "");
-            const language = match ? match[1] : "";
-            const code = String(children).replace(/\n$/, "");
-
-            return (
-              <CodeBlockWithCopy language={language} code={code} />
-            );
-          },
-          p({ children }) {
-            return <p className="mb-3 leading-relaxed text-white/90">{children}</p>;
-          },
-          h1({ children }) {
-            return (
-              <h1 className="text-2xl font-bold mb-4 mt-6 text-white border-b border-white/20 pb-2">
-                {children}
-              </h1>
-            );
-          },
-          h2({ children }) {
-            return (
-              <h2 className="text-xl font-bold mb-3 mt-5 text-white border-b border-white/10 pb-1.5">
-                {children}
-              </h2>
-            );
-          },
-          h3({ children }) {
-            return (
-              <h3 className="text-lg font-bold mb-2 mt-4 text-white/95">
-                {children}
-              </h3>
-            );
-          },
-          ul({ children }) {
-            return (
-              <ul className="list-disc list-inside mb-3 space-y-2 text-white/90 pl-2">
-                {children}
-              </ul>
-            );
-          },
-          ol({ children }) {
-            return (
-              <ol className="list-decimal list-inside mb-3 space-y-2 text-white/90 pl-2">
-                {children}
-              </ol>
-            );
-          },
-          li({ children }) {
-            return (
-              <li className="text-white/90 leading-relaxed">
-                {children}
-              </li>
-            );
-          },
-          blockquote({ children }) {
-            return (
-              <blockquote className="border-l-4 border-orange-500 pl-4 py-2 my-3 text-white/70 italic bg-orange-500/10 rounded-r-lg">
-                {children}
-              </blockquote>
-            );
-          },
-          a({ href, children }) {
-            return (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-orange-400 hover:text-orange-300 underline font-medium transition-colors"
-              >
-                {children}
-              </a>
-            );
-          },
-          strong({ children }) {
-            return (
-              <strong className="font-bold text-white">
-                {children}
-              </strong>
-            );
-          },
-          em({ children }) {
-            return (
-              <em className="italic text-white/95">
-                {children}
-              </em>
-            );
-          },
-          table({ children }) {
-            return (
-              <div className="overflow-x-auto my-4 rounded-lg border border-white/10">
-                <table className="w-full border-collapse">{children}</table>
-              </div>
-            );
-          },
-          thead({ children }) {
-            return (
-              <thead className="bg-orange-600/20 border-b border-white/10">
-                {children}
-              </thead>
-            );
-          },
-          tbody({ children }) {
-            return <tbody>{children}</tbody>;
-          },
-          tr({ children }) {
-            return <tr className="border-b border-white/10 hover:bg-white/5 transition-colors">{children}</tr>;
-          },
-          th({ children }) {
-            return (
-              <th className="px-4 py-2 text-left font-bold text-white/90 text-sm">
-                {children}
-              </th>
-            );
-          },
-          td({ children }) {
-            return (
-              <td className="px-4 py-2 text-white/80 text-sm">
-                {children}
-              </td>
-            );
-          },
-        }}
-      >
-        {content}
-      </ReactMarkdown>
+    <div className="space-y-2 text-white/90">
+      {parsedContent}
       {isStreaming && (
         <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
       )}
