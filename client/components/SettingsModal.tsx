@@ -146,17 +146,10 @@ export function SettingsModal({ isOpen, onOpenChange }: SettingsModalProps) {
               className="animate-fadeIn"
               style={{ animationDelay: "0.1s" }}
             >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/60 to-primary/80 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-semibold text-primary-foreground">
-                    A
-                  </span>
-                </div>
-                <h3 className="text-sm font-semibold text-foreground">
-                  Pseudo
-                </h3>
-              </div>
-              <div className="space-y-2.5">
+              <h3 className="text-xs font-semibold text-foreground/80 uppercase tracking-wider mb-3">
+                Pseudo
+              </h3>
+              <div className="space-y-2">
                 <input
                   type="text"
                   value={displayName}
