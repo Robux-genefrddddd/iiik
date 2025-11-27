@@ -332,7 +332,7 @@ export function ChatArea({ conversationId }: ChatAreaProps) {
                         {user?.displayName?.[0]?.toUpperCase() || "U"}
                       </span>
                     </div>
-                    <div className="flex-1 max-w-xs sm:max-w-sm md:max-w-lg">
+                    <div className="flex-1 max-w-xs sm:max-w-sm md:max-w-lg max-h-96 overflow-y-auto">
                       <div className="rounded-2xl rounded-tr-none bg-gradient-to-br from-blue-600/40 to-blue-700/30 border border-blue-500/30 px-5 py-3 backdrop-blur-sm shadow-lg hover:shadow-xl transition-shadow text-white/95 text-sm leading-relaxed break-words">
                         <MessageRenderer
                           content={msg.content}
